@@ -9,10 +9,8 @@ MODE="${1:-local}"
 case "$MODE" in
   local)
     echo "=== Running tests locally ==="
-    if [ ! -d "node_modules" ]; then
-      echo "Installing dependencies..."
-      npm install
-    fi
+    echo "Installing dependencies..."
+    npm ci
     npm test
     ;;
   docker)
@@ -22,10 +20,8 @@ case "$MODE" in
     ;;
   coverage)
     echo "=== Running tests with coverage ==="
-    if [ ! -d "node_modules" ]; then
-      echo "Installing dependencies..."
-      npm install
-    fi
+    echo "Installing dependencies..."
+    npm ci
     npm run test:coverage
     ;;
   *)
