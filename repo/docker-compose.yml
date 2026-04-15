@@ -1,0 +1,16 @@
+version: "3.8"
+
+services:
+  tests:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: alignspace-tests
+    volumes:
+      - ./tests:/app/tests:ro
+      - ./js:/app/js:ro
+      - ./data:/app/data:ro
+    command: npm test
+    environment:
+      - NODE_ENV=test
+      - CI=true

@@ -1,0 +1,351 @@
+/* ==========================================================================
+   Sticky Notes Module - Wall, Cards, Groups, Drag, CSV Import
+   ========================================================================== */
+
+/* Sticky note wall */
+.sticky-wall {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-4);
+  padding: var(--sp-4);
+  min-height: 400px;
+}
+
+.sticky-wall--freeform {
+  display: block;
+  position: relative;
+  min-height: 600px;
+}
+
+/* Individual sticky card */
+.sticky-card {
+  position: relative;
+  min-height: 160px;
+  padding: var(--sp-4);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-md);
+  display: flex;
+  flex-direction: column;
+  transition: box-shadow var(--transition-fast), transform var(--transition-fast);
+  cursor: grab;
+  word-wrap: break-word;
+  overflow-wrap: break-word;
+}
+
+.sticky-card:hover {
+  box-shadow: var(--shadow-lg);
+  transform: rotate(-0.5deg) scale(1.02);
+}
+
+.sticky-card:active {
+  cursor: grabbing;
+}
+
+/* Color variants */
+.sticky-card--yellow {
+  background: #fef9c3;
+  border: 1px solid #fde047;
+  color: #713f12;
+}
+
+.sticky-card--blue {
+  background: #dbeafe;
+  border: 1px solid #93c5fd;
+  color: #1e3a5f;
+}
+
+.sticky-card--green {
+  background: #dcfce7;
+  border: 1px solid #86efac;
+  color: #14532d;
+}
+
+.sticky-card--pink {
+  background: #fce7f3;
+  border: 1px solid #f9a8d4;
+  color: #831843;
+}
+
+.sticky-card--purple {
+  background: #ede9fe;
+  border: 1px solid #c4b5fd;
+  color: #3b0764;
+}
+
+.sticky-card--orange {
+  background: #ffedd5;
+  border: 1px solid #fdba74;
+  color: #7c2d12;
+}
+
+.sticky-card--teal {
+  background: #ccfbf1;
+  border: 1px solid #5eead4;
+  color: #134e4a;
+}
+
+/* Sticky card parts */
+.sticky-card__content {
+  flex: 1;
+  font-size: var(--text-sm);
+  line-height: var(--lh-relaxed);
+}
+
+.sticky-card__content[contenteditable="true"] {
+  outline: none;
+  cursor: text;
+}
+
+.sticky-card__content[contenteditable="true"]:focus {
+  background: rgb(255 255 255 / 0.3);
+  border-radius: var(--radius-sm);
+  padding: var(--sp-1);
+  margin: calc(-1 * var(--sp-1));
+}
+
+.sticky-card__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: var(--sp-3);
+  padding-top: var(--sp-2);
+  border-top: 1px solid rgb(0 0 0 / 0.08);
+}
+
+.sticky-card__author {
+  font-size: var(--text-xs);
+  opacity: 0.7;
+  font-weight: var(--fw-medium);
+}
+
+.sticky-card__timestamp {
+  font-size: 10px;
+  opacity: 0.5;
+}
+
+.sticky-card__actions {
+  position: absolute;
+  top: var(--sp-2);
+  right: var(--sp-2);
+  display: flex;
+  gap: var(--sp-1);
+  opacity: 0;
+  transition: opacity var(--transition-fast);
+}
+
+.sticky-card:hover .sticky-card__actions {
+  opacity: 1;
+}
+
+.sticky-card__action-btn {
+  width: 24px;
+  height: 24px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-sm);
+  background: rgb(255 255 255 / 0.6);
+  color: inherit;
+  opacity: 0.6;
+  cursor: pointer;
+  font-size: var(--text-xs);
+  transition: all var(--transition-fast);
+}
+
+.sticky-card__action-btn:hover {
+  opacity: 1;
+  background: rgb(255 255 255 / 0.9);
+}
+
+/* Vote badge on sticky */
+.sticky-card__votes {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--sp-1);
+  font-size: var(--text-xs);
+  font-weight: var(--fw-semibold);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-full);
+  background: rgb(0 0 0 / 0.08);
+  cursor: pointer;
+}
+
+.sticky-card__votes:hover {
+  background: rgb(0 0 0 / 0.12);
+}
+
+/* Group headers */
+.sticky-group {
+  margin-bottom: var(--sp-6);
+}
+
+.sticky-group__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: var(--sp-2) var(--sp-4);
+  margin-bottom: var(--sp-3);
+}
+
+.sticky-group__title {
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text);
+}
+
+.sticky-group__count {
+  font-size: var(--text-xs);
+  color: var(--c-text-muted);
+  font-weight: var(--fw-medium);
+  background: var(--c-bg-active);
+  padding: var(--sp-1) var(--sp-2);
+  border-radius: var(--radius-full);
+}
+
+.sticky-group__cards {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: var(--sp-3);
+}
+
+/* Drag states */
+.sticky-card--dragging {
+  opacity: 0.6;
+  transform: rotate(3deg) scale(1.05);
+  box-shadow: var(--shadow-xl);
+  z-index: 50;
+  cursor: grabbing;
+}
+
+.sticky-card--drag-over {
+  box-shadow: 0 0 0 3px var(--c-primary);
+}
+
+.sticky-group--drag-over {
+  background: var(--c-primary-light);
+  border-radius: var(--radius-lg);
+}
+
+.sticky-drop-zone {
+  border: 2px dashed var(--c-border-strong);
+  border-radius: var(--radius-lg);
+  min-height: 120px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--c-text-muted);
+  font-size: var(--text-sm);
+  transition: all var(--transition-fast);
+}
+
+.sticky-drop-zone--active {
+  border-color: var(--c-primary);
+  background: var(--c-primary-light);
+  color: var(--c-primary);
+}
+
+/* CSV import area */
+.sticky-csv-import {
+  border: 2px dashed var(--c-border);
+  border-radius: var(--radius-lg);
+  padding: var(--sp-8);
+  text-align: center;
+  transition: all var(--transition-fast);
+  cursor: pointer;
+}
+
+.sticky-csv-import:hover {
+  border-color: var(--c-border-strong);
+  background: var(--c-bg-hover);
+}
+
+.sticky-csv-import--dragover {
+  border-color: var(--c-primary);
+  background: var(--c-primary-light);
+}
+
+.sticky-csv-import__icon {
+  font-size: var(--text-3xl);
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-3);
+}
+
+.sticky-csv-import__title {
+  font-size: var(--text-base);
+  font-weight: var(--fw-semibold);
+  color: var(--c-text-secondary);
+  margin-bottom: var(--sp-1);
+}
+
+.sticky-csv-import__hint {
+  font-size: var(--text-sm);
+  color: var(--c-text-muted);
+  margin-bottom: var(--sp-4);
+}
+
+.sticky-csv-import__browse {
+  display: inline-flex;
+  padding: var(--sp-2) var(--sp-4);
+  background: var(--c-primary);
+  color: var(--c-text-inverse);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  border-radius: var(--radius-md);
+  cursor: pointer;
+  transition: background var(--transition-fast);
+}
+
+.sticky-csv-import__browse:hover {
+  background: var(--c-primary-hover);
+}
+
+/* CSV preview table */
+.sticky-csv-preview {
+  margin-top: var(--sp-4);
+  border: 1px solid var(--c-border);
+  border-radius: var(--radius-md);
+  overflow: auto;
+  max-height: 240px;
+}
+
+.sticky-csv-preview table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: var(--text-sm);
+}
+
+.sticky-csv-preview th {
+  padding: var(--sp-2) var(--sp-3);
+  background: var(--c-bg);
+  font-weight: var(--fw-semibold);
+  text-align: left;
+  border-bottom: 1px solid var(--c-border);
+  position: sticky;
+  top: 0;
+}
+
+.sticky-csv-preview td {
+  padding: var(--sp-2) var(--sp-3);
+  border-bottom: 1px solid var(--c-border);
+}
+
+/* Add new sticky button */
+.sticky-add {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 160px;
+  border: 2px dashed var(--c-border);
+  border-radius: var(--radius-md);
+  color: var(--c-text-muted);
+  font-size: var(--text-sm);
+  font-weight: var(--fw-medium);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.sticky-add:hover {
+  border-color: var(--c-primary);
+  color: var(--c-primary);
+  background: var(--c-primary-light);
+}
