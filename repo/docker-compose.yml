@@ -1,4 +1,16 @@
 services:
+  app:
+    image: node:20-alpine
+    container_name: alignspace-app
+    working_dir: /app
+    volumes:
+      - ./:/app:ro
+    command: npx --yes serve -l 8080 -s .
+    ports:
+      - "8080:8080"
+    environment:
+      - NODE_ENV=production
+
   tests:
     build:
       context: .

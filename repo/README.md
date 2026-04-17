@@ -1,35 +1,66 @@
+<!-- project-type: web -->
 # AlignSpace — Offline Collaboration for Cross-Functional Teams
+
+**Project type:** web (static HTML/CSS/JavaScript, no backend, runs entirely in the browser)
 
 A fully offline, no-backend collaboration app built with vanilla HTML/CSS/JavaScript. Teams align inside shared "rooms" with a whiteboard, sticky notes, chat, and more — all data stays on the device.
 
-## Quick Start
+## Quick Start (Docker-only — required path)
+
+Docker is the supported and required path for both serving the app and running tests.
 
 ```bash
-# Serve locally (any static server works)
-python3 -m http.server 8080
-# or
-npx serve .
+# Build the image and serve the static app on http://localhost:8080
+docker compose up --build app
 
-# Open in browser
+# Open the app
 open http://localhost:8080
 ```
 
-No build step, no npm install required for running — just serve the files.
+Once the container is running, the app is reachable at:
 
-## Running Tests
+| URL | Purpose |
+|---|---|
+| http://localhost:8080/ | App root (redirects to `#/login`) |
+| http://localhost:8080/#/login | Sign-in page |
+| http://localhost:8080/#/rooms | Room list (after login) |
+| http://localhost:8080/#/ops | Ops Console (requires `ops` role) |
+
+Stop with `docker compose down`. All app state lives in the browser's IndexedDB/LocalStorage — clearing site data resets the account.
+
+## Demo Auth Credentials (deterministic)
+
+These accounts are seeded into IndexedDB on first boot (via the demo seeder) so reviewers can sign in without going through account creation. Usernames are lowercase; display names and email-style handles are shown for reference only — the login form takes the **username** and **password** fields.
+
+| Role | Username | Display email | Password | Capabilities |
+|---|---|---|---|---|
+| user | `demo_user` | demo_user@alignspace.local | `demo-user-pass-1` | Default member — can create rooms, whiteboard, stickies, chat, meals, bookings, notifications, relationships |
+| ops  | `demo_ops`  | demo_ops@alignspace.local  | `demo-ops-pass-1`  | Everything a user can do, plus the Ops Console (`#/ops`): announcements, templates, sensitive-word library, rules, booking policies, analytics |
+
+To switch into the ops role after signing in as `demo_ops`, click the **Ops** toggle in the header (role is a client-side toggle backed by `localStorage.alignspace_role`). The `#/ops` route is protected by the `requireOps` guard; non-ops users are redirected to `#/rooms`.
+
+> If the seeded accounts are missing (e.g. fresh browser profile before the seeder runs), create them manually on `#/login` → "Create Account" with the same username/password combinations above, then flip the role toggle to Ops for `demo_ops`.
+
+## Running Tests (Docker-only)
 
 ```bash
-# Install test dependencies (first time only)
-npm install
+# Build the test image and run the full Vitest suite inside Docker
+docker compose run --rm tests
 
-# Run all tests
-./run_tests.sh            # or: npm test
-
-# Run with coverage
-./run_tests.sh coverage
+# Or via the helper script (Docker mode)
+./run_tests.sh docker
 ```
 
-> **Docker (optional):** `./run_tests.sh docker` runs tests inside a Docker container. This requires Docker to be installed and is not needed for normal development — local execution via `npm test` is sufficient.
+Docker is the only supported way to run tests. The test image resolves exact pinned dependencies during its build and runs the full suite with `NODE_ENV=test CI=true`. There is no host-side test path — all verification must happen inside the container.
+
+## Verification Flow (Docker)
+
+1. `docker compose up --build app` — wait until the container logs show the static server is listening on `:8080`.
+2. Open http://localhost:8080/#/login in a browser.
+3. Sign in as `demo_user` / `demo-user-pass-1`. The app should navigate to `#/rooms`.
+4. Sign out (avatar menu → Logout). Sign in as `demo_ops` / `demo-ops-pass-1`.
+5. Click the **Ops** toggle in the header. An "Administration" section with "Ops Console" appears in the sidebar. Navigate to `#/ops` — the console renders.
+6. In a second terminal: `docker compose run --rm tests`. All Vitest suites should pass.
 
 ## Routes
 
@@ -131,12 +162,14 @@ The app includes a service worker (`sw.js`) with cache-first strategy and a `man
 - **Web Workers** for CSV parsing, snapshot serialization, report generation
 - **Service Worker** for offline caching
 - **Web Crypto API** (PBKDF2) for password hashing
-- **Vitest** + jsdom + fake-indexeddb for testing
+- **Vitest** + jsdom + fake-indexeddb for testing (run via Docker)
 
-## Verification Steps
+## In-Browser Verification Steps
+
+All verifications below assume you already ran `docker compose up --build app` and are signed in at http://localhost:8080.
 
 ### Booking Policy Configuration
-1. Serve the app and log in.
+1. Sign in as `demo_ops` / `demo-ops-pass-1`.
 2. Toggle to "Ops" role via the header button.
 3. Navigate to Ops Console → Booking Policies tab.
 4. Set a cancellation policy (e.g. fee: 10, deadline: 24h, blockLate: checked).
@@ -147,12 +180,12 @@ The app includes a service worker (`sw.js`) with cache-first strategy and a `man
 
 ### Nutrient Database Bootstrap
 1. Open the app in a fresh browser profile (no IndexedDB data).
-2. Log in and navigate to Meal Planner.
+2. Sign in as `demo_user` / `demo-user-pass-1` and navigate to Meal Planner.
 3. The nutrient DB loads automatically; click "Create Meal Plan" → "Add Food" → search "rice" — results should appear.
 4. To test error handling: open DevTools → Application → IndexedDB → delete the `nutrientDb` store, then block `/data/nutrients.json` in Network tab. Reload the meals page — an error banner with "Retry" should appear. Unblock the URL and click Retry — the banner should disappear and food search should work.
 
 ### Cross-tab Sync
-1. Open two tabs of the app, both logged in and viewing the same room.
+1. Open two tabs of the app at http://localhost:8080, both signed in as `demo_user` and viewing the same room.
 2. In Tab A, draw on the whiteboard. Tab B should reflect the change.
 3. In Tab A, send a chat message. Tab B should display it.
 4. Create a booking in Tab A — Tab B's booking list updates on navigation.

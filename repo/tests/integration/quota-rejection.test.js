@@ -1,4 +1,4 @@
-import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
+import { describe, it, expect, beforeEach, afterEach } from 'vitest';
 import { resetAll, setCurrentUser } from '../helpers.js';
 import { roomService } from '../../js/services/room-service.js';
 import { whiteboardService } from '../../js/services/whiteboard-service.js';
@@ -7,84 +7,132 @@ import { chatService } from '../../js/services/chat-service.js';
 import { autosave } from '../../js/core/autosave.js';
 import { db } from '../../js/core/db.js';
 import { bus } from '../../js/core/event-bus.js';
-import * as quotaGuard from '../../js/core/quota-guard.js';
+import { invalidateCache, LIMITS } from '../../js/core/quota-guard.js';
 
-describe('Integration: Hard quota rejection across services', () => {
+/**
+ * Reduced boundary mocking:
+ *  - Previously this suite replaced `enforceQuota` wholesale with
+ *    `vi.spyOn(...).mockRejectedValue(...)`, so the tests never exercised the real
+ *    threshold logic in `quota-guard.js`.
+ *  - Now the real `enforceQuota` runs for every assertion. The only shim is on the
+ *    `Blob` global: rows seeded with a `__quotaSize` marker are reported at exactly
+ *    that byte count by our synthetic Blob, which lets the real estimateSize sum
+ *    cross the 200 MB threshold without allocating a literal 200 MB string (which
+ *    hits V8's array-length cap in this runtime). Every service path under test —
+ *    the activity log, event bus, IDB writes, autosave — runs for real.
+ */
+
+const RealBlob = globalThis.Blob;
+function installSyntheticBlob() {
+  globalThis.Blob = class QuotaBlob extends RealBlob {
+    constructor(parts, options) {
+      super(parts, options);
+      for (const part of parts || []) {
+        if (typeof part === 'string') {
+          const m = part.match(/"__quotaSize":(\d+)/);
+          if (m) { this._syntheticSize = parseInt(m[1], 10); return; }
+        }
+      }
+    }
+    get size() { return this._syntheticSize ?? super.size; }
+  };
+}
+function uninstallSyntheticBlob() {
+  globalThis.Blob = RealBlob;
+}
+
+async function seedSynthetic(roomId, bytes) {
+  // Seed into activityLogs — that store is also tracked by quota-guard but is NOT
+  // read by the services under test, so synthetic quota rows cannot pollute the
+  // whiteboard/sticky/chat reads we assert on.
+  await db.put('activityLogs', {
+    id: `${roomId}-synthetic-quota-row`,
+    roomId,
+    action: 'synthetic-quota-seed',
+    __quotaSize: bytes,
+    createdAt: Date.now()
+  });
+  invalidateCache(roomId);
+}
+
+describe('Integration: Hard quota rejection across services (real enforceQuota, real services)', () => {
   let room;
 
   beforeEach(async () => {
     await resetAll();
     setCurrentUser();
     autosave.destroy();
-    autosave.init(async () => {}); // no-op flush for these tests
+    autosave.init(async () => {});
+    installSyntheticBlob();
     room = await roomService.createRoom('Quota Room');
   });
 
   afterEach(() => {
-    vi.restoreAllMocks();
+    uninstallSyntheticBlob();
     autosave.destroy();
   });
 
-  function mockOverLimit() {
-    // Mock enforceQuota directly since getUsage is an internal call
-    vi.spyOn(quotaGuard, 'enforceQuota').mockRejectedValue(
-      new Error('Storage limit exceeded for this room (201.0 MB / 200 MB). Delete unused content to free space.')
-    );
-  }
-
-  it('should reject whiteboard createElement when over quota', async () => {
-    mockOverLimit();
+  it('rejects whiteboardService.createElement when usage >= STORAGE_LIMIT (real enforceQuota)', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 })
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should reject whiteboard addComment when over quota', async () => {
-    // Create element BEFORE hitting quota
+  it('error message formatted by the real formatter includes "200 MB" and the cleanup hint', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
+    await expect(
+      whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 })
+    ).rejects.toThrow(/200 MB/);
+    invalidateCache(room.id);
+    await expect(
+      whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 })
+    ).rejects.toThrow(/Delete unused content/);
+  });
+
+  it('rejects whiteboardService.addComment when over quota', async () => {
     const el = await whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 });
-    mockOverLimit();
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       whiteboardService.addComment(el.id, 'Test comment')
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should reject stickyService createNote when over quota', async () => {
-    mockOverLimit();
+  it('rejects stickyService.createNote when over quota', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       stickyService.createNote(room.id, { title: 'T', body: 'B' })
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should reject stickyService importCSV when over quota', async () => {
-    mockOverLimit();
+  it('rejects stickyService.importCSV when over quota', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       stickyService.importCSV(room.id, 'title,body\nA,B')
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should reject chatService sendMessage when over quota', async () => {
-    mockOverLimit();
+  it('rejects chatService.sendMessage when over quota', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       chatService.sendMessage(room.id, 'hello')
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should reject roomService createSnapshot when over quota', async () => {
-    mockOverLimit();
+  it('rejects roomService.createSnapshot when over quota', async () => {
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
     await expect(
       roomService.createSnapshot(room.id, 'snap')
     ).rejects.toThrow(/Storage limit exceeded/);
   });
 
-  it('should allow reads when over quota', async () => {
-    // Create data before quota hit
+  it('reads remain allowed when over quota (no quota check on read paths)', async () => {
     await whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 });
     await stickyService.createNote(room.id, { title: 'N', body: 'B' });
     await chatService.sendMessage(room.id, 'hi');
 
-    mockOverLimit();
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
 
-    // Reads should still work
     const elements = await whiteboardService.getElementsByRoom(room.id);
     expect(elements.length).toBe(1);
     const notes = await stickyService.getNotesByRoom(room.id);
@@ -93,13 +141,12 @@ describe('Integration: Hard quota rejection across services', () => {
     expect(messages.length).toBe(1);
   });
 
-  it('should allow deletes when over quota (to free space)', async () => {
+  it('deletes remain allowed when over quota (so users can free space)', async () => {
     const el = await whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 });
     const note = await stickyService.createNote(room.id, { title: 'N', body: 'B' });
 
-    mockOverLimit();
+    await seedSynthetic(room.id, LIMITS.STORAGE_LIMIT + 1024);
 
-    // Deletes should still work (no quota check on delete)
     await whiteboardService.deleteElement(el.id);
     await stickyService.deleteNote(note.id);
 
@@ -109,18 +156,23 @@ describe('Integration: Hard quota rejection across services', () => {
     expect(notes.length).toBe(0);
   });
 
-  it('should emit storage warning when approaching limit', async () => {
-    const handler = vi.fn();
+  it('emits the real room:storage-warning event when usage is in [WARNING, LIMIT)', async () => {
+    const events = [];
+    const handler = (e) => events.push(e);
     bus.on('room:storage-warning', handler);
 
-    // Mock enforceQuota to emit warning (like the real one does at 180MB+)
-    vi.spyOn(quotaGuard, 'enforceQuota').mockImplementation(async (roomId) => {
-      bus.emit('room:storage-warning', { roomId, used: 185 * 1024 * 1024, limit: 200 * 1024 * 1024, warning: 180 * 1024 * 1024 });
-    });
+    await seedSynthetic(room.id, LIMITS.STORAGE_WARNING + 1024);
 
+    // Non-blocking warning: write succeeds AND the event is emitted by real enforceQuota
     await whiteboardService.createElement(room.id, 'rect', { x: 0, y: 0 });
-    expect(handler).toHaveBeenCalled();
-    expect(handler.mock.calls[0][0].roomId).toBe(room.id);
+
+    expect(events.length).toBeGreaterThan(0);
+    const warn = events[0];
+    expect(warn.roomId).toBe(room.id);
+    expect(warn.limit).toBe(LIMITS.STORAGE_LIMIT);
+    expect(warn.warning).toBe(LIMITS.STORAGE_WARNING);
+    expect(warn.used).toBeGreaterThanOrEqual(LIMITS.STORAGE_WARNING);
+    expect(warn.used).toBeLessThan(LIMITS.STORAGE_LIMIT);
 
     bus.off('room:storage-warning', handler);
   });
